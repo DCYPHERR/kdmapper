@@ -1,3 +1,127 @@
+
+// Linux x86 ring usage overview
+
+// Understanding how rings are used in Linux will give you a good idea of what they are designed for.
+
+// In x86 protected mode, the CPU is always in one of 4 rings. The Linux kernel only uses 0 and 3:
+
+//     0 for kernel
+//     3 for users
+
+// This is the most hard and fast definition of kernel vs userland.
+
+// Why Linux does not use rings 1 and 2: CPU Privilege Rings: Why rings 1 and 2 aren't used?
+
+// How is the current ring determined?
+
+// The current ring is selected by a combination of:
+
+//     global descriptor table: a in-memory table of GDT entries, and each entry has a field Privl which encodes the ring.
+
+//     The LGDT instruction sets the address to the current descriptor table.
+
+//     See also: http://wiki.osdev.org/Global_Descriptor_Table
+
+//     the segment registers CS, DS, etc., which point to the index of an entry in the GDT.
+
+//     For example, CS = 0 means the first entry of the GDT is currently active for the executing code.
+
+// What can each ring do?
+
+// The CPU chip is physically built so that:
+
+//     ring 0 can do anything
+
+//     ring 3 cannot run several instructions and write to several registers, most notably:
+
+//         cannot change its own ring! Otherwise, it could set itself to ring 0 and rings would be useless.
+
+//         In other words, cannot modify the current segment descriptor, which determines the current ring.
+
+//         cannot modify the page tables: How does x86 paging work?
+
+//         In other words, cannot modify the CR3 register, and paging itself prevents modification of the page tables.
+
+//         This prevents one process from seeing the memory of other processes for security / ease of programming reasons.
+
+//         cannot register interrupt handlers. Those are configured by writing to memory locations, which is also prevented by paging.
+
+//         Handlers run in ring 0, and would break the security model.
+
+//         In other words, cannot use the LGDT and LIDT instructions.
+
+//         cannot do IO instructions like in and out, and thus have arbitrary hardware accesses.
+
+//         Otherwise, for example, file permissions would be useless if any program could directly read from disk.
+
+//         More precisely thanks to Michael Petch: it is actually possible for the OS to allow IO instructions on ring 3, this is actually controlled by the Task state segment.
+
+//         What is not possible is for ring 3 to give itself permission to do so if it didn't have it in the first place.
+
+//         Linux always disallows it. See also: Why doesn't Linux use the hardware context switch via the TSS?
+
+// How do programs and operating systems transition between rings?
+
+//     when the CPU is turned on, it starts running the initial program in ring 0 (well kind of, but it is a good approximation). You can think this initial program as being the kernel (but it is normally a bootloader that then calls the kernel still in ring 0).
+
+//     when a userland process wants the kernel to do something for it like write to a file, it uses an instruction that generates an interrupt such as int 0x80 or syscall to signal the kernel. x86-64 Linux syscall hello world example:
+
+// .data
+// hello_world:
+//     .ascii "hello world\n"
+//     hello_world_len = . - hello_world
+// .text
+// .global _start
+// _start:
+//     /* write */
+//     mov $1, %rax
+//     mov $1, %rdi
+//     mov $hello_world, %rsi
+//     mov $hello_world_len, %rdx
+//     syscall
+
+//     /* exit */
+//     mov $60, %rax
+//     mov $0, %rdi
+//     syscall
+
+// compile and run:
+
+// as -o hello_world.o hello_world.S
+// ld -o hello_world.out hello_world.o
+// ./hello_world.out
+
+// GitHub upstream.
+
+// When this happens, the CPU calls an interrupt callback handler which the kernel registered at boot time. Here is a concrete baremetal example that registers a handler and uses it.
+
+// This handler runs in ring 0, which decides if the kernel will allow this action, do the action, and restart the userland program in ring 3. x86_64
+
+//     when the exec system call is used (or when the kernel will start /init), the kernel prepares the registers and memory of the new userland process, then it jumps to the entry point and switches the CPU to ring 3
+
+//     If the program tries to do something naughty like write to a forbidden register or memory address (because of paging), the CPU also calls some kernel callback handler in ring 0.
+
+//     But since the userland was naughty, the kernel might kill the process this time, or give it a warning with a signal.
+
+//     When the kernel boots, it setups a hardware clock with some fixed frequency, which generates interrupts periodically.
+
+//     This hardware clock generates interrupts that run ring 0, and allow it to schedule which userland processes to wake up.
+
+//     This way, scheduling can happen even if the processes are not making any system calls.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 #include "intel_driver.hpp"
 
 char intel_driver::driver_name[100] = {};
